@@ -7,9 +7,9 @@ KVell is a prototype. Many things have not been tested. Use it as an inspiration
 
 KVell has 2 distinct types of threads. Load injector threads, and worker threads.
 
-* Requests are sent by the  load injector threads. Load injector threads basically:
+* Requests are sent by the load injector threads. Load injector threads basically:
   * Create a request `struct slab_callback *cb`. A request contains an `item = { key, value }` and a callback that is called when the request has been processed.
-  * Enqueue the request in the KV, using one of the `kv_xxx` function (e.g., `kv_read_async(cb)` ). Requests partionned amongst workers based on the prefix of the key modulo number of workers.
+  * Enqueue the request in the KV, using one of the `kv_xxx` function (e.g., `kv_read_async(cb)` ). Requests partitioned amongst workers based on the prefix of the key modulo number of workers.
   * Main code to generate the callbacks is in [workload-ycsb.c](workload-ycsb.c) and the enqueue code is in [slabworker.c](slabworker.c).
   * For scans, the load injector threads also merges keys from all the in-memory indexes of worker threads. See `btree_init_scan` for instance.
 
