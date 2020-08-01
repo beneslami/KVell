@@ -1,7 +1,7 @@
 #!/bin/bash
 
 if [ $EUID -ne 0 ]; then
-   echo "This script must be run as root" 
+   echo "This script must be run as root"
    exit 1
 fi
 
@@ -20,16 +20,23 @@ done
 
 #Create mounts
 used=`df -h | grep nvme | perl -pe 's/.*?([0-9]).*/\1/'` # For some reason / is sometimes mounted on an NVMe, so discard it
-j=0
-for i in 0 1 2 3 4 5 6 7 8; do
-   [ "$i" = "$used" ] && continue
-   mkfs -t ext4 /dev/nvme${i}n1
-   mkdir /scratch${j}
-   mount -o rw,noatime,nodiratime,block_validity,delalloc,nojournal_checksum,barrier,user_xattr,acl /dev/nvme${i}n1 /scratch${j}/
-   mkdir /scratch${j}/kvell
-   sudo chown ubuntu:ubuntu /scratch${j}/kvell
-   j=$((j+1))
-done
+#j=0
+#for i in 0 1 2 3 4 5 6 7 8; do
+#   [ "$i" = "$used" ] && continue
+#   mkfs -t ext4 /dev/nvme${i}n1
+#   mkdir /scratch${j}
+#   mount -o rw,noatime,nodiratime,block_validity,delalloc,nojournal_checksum,barrier,user_xattr,acl /dev/nvme${i}n1 /scratch${j}/
+#   mkdir /scratch${j}/kvell
+#   sudo chown ubuntu:ubuntu /scratch${j}/kvell
+#   j=$((j+1))
+#done
+
+# added section -> Ben
+mkfs -t ext4 /dev/nvme0n1
+mkdir /scratch0
+mount -o rw,noatime,nodiratime,block_validity,delalloc,nojournal_checksum,barrier,user_xattr,acl /dev/nvme0n1 /scratch0/
+mkdir /scratch0/Kvell
+sudo chown ubuntu:ubuntu /scratch0/Kvell
 
 #That's what we use for other systems
 #pvcreate /dev/nvme[12345678]n1
