@@ -113,7 +113,7 @@ struct slab* create_slab(struct slab_context *ctx, int slab_worker_id, size_t it
    struct slab *s = calloc(1, sizeof(*s));
 
    size_t disk = slab_worker_id / (get_nb_workers()/get_nb_disks());
-   sprintf(path, PATH, disk, slab_worker_id, 0LU, item_size);
+   sprintf(path, PATH, 0, slab_worker_id, 0LU, item_size);
    s->fd = open(path,  O_RDWR | O_CREAT | O_DIRECT, 0777);
    if(s->fd == -1)
       perr("Cannot allocate slab %s", path);
