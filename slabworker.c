@@ -1,5 +1,7 @@
 #include "headers.h"
-
+#include "serialize/serialize.h"
+#include "server-socket.h"
+#include "client-socket.h"
 /*
  * A slab worker takes care of processing requests sent to the KV-Store.
  * E.g.:
@@ -56,6 +58,46 @@ struct slab_context {
    struct io_context *io_ctx;
    uint64_t rdt;                                         // Latest timestamp
 } *slab_contexts;
+
+static struct slab*
+de_serialize_slabs(ser_buff_t *b){
+
+}
+
+static struct slab_callback*
+de_serialize_callback(ser_buff_t *b){
+
+}
+
+static struct pagecache*
+de_serialize_page_cache(ser_buff_t *b){
+
+}
+
+static struct io_context*
+de_serialize_io_ctx(ser_buff_t *b){
+
+}
+
+static struct slab_context*
+de_serialize_ctx(ser_buff_t *b){
+  int loop_var;
+  unsigned int sentinel = 0;
+  SENTINEL_DETECTION_CODE(b);
+  slab_context *ctx = calloc(1, sizeof(slab_context));
+  de_serialize_data((char*)ctx->worker_id, b, sizeof(size_t));
+  struct slab **slabs = de_serialize_slabs(b);
+  struct slab_callback *callbacks = de_serialize_callback(b);
+  de_serialize_data((char*)ctx->buffered_callbacks_idx, b, sizeof(size_t));
+  de_serialize_data((char*)ctx->sent_callbacks, b, sizeof(size_t));
+  de_serialize_data((char*)ctx->processed_callbacks, b, sizeof(size_t));
+  de_serialize_data((char*)ctx->max_pending_callbacks, b, sizeof(size_t));
+  struct pagecache *p = de_serialize_page_cache(b);
+  struct io_context *io_ctx = de_serialize_io_ctx(b);
+  de_serialize_data((char*)ctx->rdt, b, sizeof(uint64_t));
+
+  return ctx;
+}
 
 /* A file is only managed by 1 worker. File => worker function. */
 int get_worker(struct slab *s) {
@@ -324,6 +366,35 @@ static void worker_slab_init_cb(struct slab_callback *cb, void *item) {
 
 static void *worker_slab_init(void *pdata) {
    struct slab_context *ctx = pdata;
+   int socketfd, comm_socket_fd, data_socket, ret;
+   unsigned int client_secret, result;
+   fd_set readfds;
+   char buffer[2048];
+
+   server_struct_t *server_attribute = calloc(1, sizeof(server_struct_t*));
+   if (argc != 2) {
+         perror("ERROR, port is not initialized");
+         exit(1);
+   }
+   in_port_t port = atoi(argv[1]);
+   socketfd = init_socket_server(server_attribute);
+   if(socketfd == -1){
+         perror("Server-socket() error!");
+         exit(0);
+   }
+   printf("Server-socket created\n");
+
+   if(bind_create_socket(socketfd, port) < 0){
+         perror("Server-socket-bind() failed");
+         exit(0);
+   }
+   printf("bind done\n");
+
+   if(listen(socketfd, 10) == -1){
+     perror("Server-socket-listen() failed");
+     exit(1);
+   }
+   add_to_monitor(server_attribute, socketfd);
 
    __sync_add_and_fetch(&nb_workers_launched, 1);
 
@@ -348,34 +419,92 @@ static void *worker_slab_init(void *pdata) {
    }
    free(cb);
 
+
+   ser_buff_t *server_recv_ser_buffer = NULL;
+   init_serialized_buffer_of_defined_size(&server_recv_ser_buffer, 2048);
+   reset_serialize_buffer(server_recv_ser_buffer);
     __sync_add_and_fetch(&nb_workers_ready, 1);
-
+    struct slab_context *received_ctx = calloc(1, sizeof(struct slab_context));
    /* Main loop: do IOs and process enqueued requests */
-   declare_breakdown;
-   while(1) {
-      ctx->rdt++;
+ declare_breakdown;
+ while(1) {
+    ctx->rdt++;
 
-      while(io_pending(ctx->io_ctx)) {
-         worker_ioengine_enqueue_ios(ctx->io_ctx); __1
-         worker_ioengine_get_completed_ios(ctx->io_ctx); __2
-         worker_ioengine_process_completed_ios(ctx->io_ctx); __3
-      }
+    while(io_pending(ctx->io_ctx)) {
+       worker_ioengine_enqueue_ios(ctx->io_ctx); __1
+       worker_ioengine_get_completed_ios(ctx->io_ctx); __2
+       worker_ioengine_process_completed_ios(ctx->io_ctx); __3
+    }
 
-      volatile size_t pending = ctx->sent_callbacks - ctx->processed_callbacks;
-      while(!pending && !io_pending(ctx->io_ctx)) {
-         if(!PINNING) {
-            usleep(2);
-         } else {
-            NOP10();
+    volatile size_t pending = ctx->sent_callbacks - ctx->processed_callbacks;
+    while(!pending && !io_pending(ctx->io_ctx)) {
+       if(!PINNING) {
+          usleep(2);
+       } else {
+          NOP10();
+       }
+       pending = ctx->sent_callbacks - ctx->processed_callbacks;
+    } __4
+
+    /* added piece of code for remote connection */
+   for(;;){
+     refresh(server_attribute, &readfds);
+     printf("Waiting for incoming connection\n");
+     select(get_max(server_attribute) + 1, &readfds, NULL, NULL, NULL);
+
+     if(FD_ISSET(socketfd, &readfds)){                                           /* connection initiaztion part */
+       printf("New connection recieved\n");
+       data_socket = accept(socketfd, NULL, NULL);
+       if(data_socket == -1){
+         perror("accpet");
+         exit(EXIT_FAILURE);
+       }
+       printf("connection accepted\n");
+       add_to_monitor(server_attribute, data_socket);
+     }
+     else if(FD_ISSET(0, &readfds)){                                             /* input from console */
+       char op[BUFFER_SIZE];
+       ret = read(0, op, BUFFER_SIZE -1);
+       op[strcspn(op, "\r\n")] = 0; // flush new line
+       if(ret < 0){
+           printf("Insert valid operation\n");
+           break;
+       }
+       op[ret] = 0;
+       printf("input from console:\n%s\n", op);
+     }
+     else{                                                   /* data strives on some other client's FDs. Find the client which has sent us the data request */
+       for(int i=2; i< MAX_CLIENT_SUPPORTED; i++){
+         if(FD_ISSET(get_monitored_fd_set(server_attribute, i), &readfds)){
+           comm_socket_fd = get_monitored_fd_set(server_attribute, i);
+           memset(buffer, 0, BUFFER_SIZE);
+           ret = recv(comm_socket_fd, server_recv_ser_buffer->b, 2048, 0);
+           if(ret == -1){
+             perror("read");
+             exit(0);
+           }
+           received_ctx = de_serialize_ctx(server_recv_ser_buffer);
+           worker_dequeue_requests(received_ctx); __5 // Process queue
+           show_breakdown_periodic(1000, received_ctx->processed_callbacks, "io_submit", "io_getevents", "io_cb", "wait", "slab_cb");
+           /*ret = send(data_socket, &result, sizeof(int), 0);
+           if(ret == -1){
+             perror("read");
+             exit(0);
+           }*/
+           close(comm_socket_fd);
+           remove_from_monitor(server_attribute, comm_socket_fd);
+           break;
          }
-         pending = ctx->sent_callbacks - ctx->processed_callbacks;
-      } __4
-
-      worker_dequeue_requests(ctx); __5 // Process queue
-
-      show_breakdown_periodic(1000, ctx->processed_callbacks, "io_submit", "io_getevents", "io_cb", "wait", "slab_cb");
+         break;
+       }
+     }
    }
-
+ }
+ close(socketfd);
+ remove_from_monitor(server_attribute, socketfd);
+ unlink(SOCKET_NAME);
+ free(server_attribute);
+ /* added piece of code for remote connection */
    return NULL;
 }
 
