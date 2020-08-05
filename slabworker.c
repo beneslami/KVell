@@ -61,7 +61,58 @@ struct slab_context {
 
 static struct slab*
 de_serialize_slabs(ser_buff_t *b){
-
+  unsigned intsentinel = 0;
+  struct slab *slabs = calloc(1, sizeof(slab));
+  SENTINEL_DETECTION_CODE(b);
+  de_serialize_data((char*)&sentinel, b, sizeof(unsigned int));
+  if(sentinel == 0xFFFFFFFF){
+    slabs->ctx = NULL;
+  }
+  else{
+    serialize_buffer_skip(b, -1 * sizeof(unsigned int));
+    slabs->ctx = calloc(1, sizeof(slab_context));
+    slabs->ctx = de_serialize_ctx(b);
+  }
+  de_serialize_data((char*)slabs->item_size, b, sizeof(size_t));
+  de_serialize_data((char*)slabs->nb_items, b, sizeof(size_t));
+  de_serialize_data((char*)slabs->last_item, b, sizeof(size_t));
+  de_serialize_data((char*)slabs->nb_max_items, b, sizeof(size_t));
+  de_serialize_data((char*)slabs->fd, b, sizeof(int));
+  de_serialize_data((char*)slabs->size_on_disk, b, sizeof(size_t));
+  de_serialize_data((char*)slabs->nb_free_items, b, sizeof(size_t));
+  de_serialize_data((char*)slabs->nb_free_items_in_memory, b, sizeof(size_t));
+  de_serialize_data((char*)&sentinel, b, sizeof(unsigned int));
+  if(sentinel == 0xFFFFFFFF){
+    slabs->freed_items = NULL;
+  }
+  else{
+    slabs->freed_items = calloc(1, sizeof(struct freelist_entry));
+    slabs->freed_items = de_serialize_freed_items(b);
+  }
+  de_serialize_data((char*)&sentinel, b, sizeof(unsigned int));
+  if(sentinel == 0xFFFFFFFF){
+    slabs->freed_items_tail = NULL;
+  }
+  else{
+    slabs->freed_items_tail = calloc(1, sizeof(struct freelist_entry));
+    slabs->freed_items_tail = de_serialize_freed_items(b);
+  }
+  de_serialize_data((char*)&sentinel, b, sizeof(unsigned int));
+  if(sentinel == 0xFFFFFFFF){
+    slabs->freed_items_recovery = NULL;
+  }
+  else{
+    slabs->freed_items_recovery = calloc(1, sizeof(btree_t));
+    slabs->freed_items_recovery = de_serialize_freed_items_recovery(b);
+  }
+  de_serialize_data((char*)&sentinel, b, sizeof(unsigned int));
+  if(sentinel == 0xFFFFFFFF){
+    slabs->freed_items_pointed_to = NULL;
+  }
+  else{
+    slabs->freed_items_pointed_to = calloc(1, sizeof(btree_t));
+    slabs->freed_items_pointed_to = de_serialize_freed_items_recovery(b);
+  }
 }
 
 static struct slab_callback*
