@@ -59,6 +59,32 @@ struct slab_context {
    uint64_t rdt;                                         // Latest timestamp
 } *slab_contexts;
 
+static lru_entry*
+de_serialize_lru(ser_buff_t *b){
+  unsigned int sentinel = 0;
+  SENTINEL_DETECTION_CODE(b);
+  struct lru *lru_entry = calloc(1, sizeof(struct lru));
+  de_serialize_data((char*)sentinel, b, sizeof(unsigned int));
+  if(sentinel == 0xFFFFFFFF){
+    lru->prev = NULL;
+  }
+  else{
+    serialize_buffer_skip(b, -1*sizeof(unsigned int));
+    lru_entry->prev = de_serialize_lru(b);
+  }
+  de_serialize_data((char*)sentinel, b, sizeof(unsigned int));
+  if(sentinel == 0xFFFFFFFF){
+    lru->next = NULL;
+  }
+  else{
+    serialize_buffer_skip(b, -1*sizeof(unsigned int));
+    lru_entry->next = de_serialize_lru(b);
+  }
+  de_serialize_data((char*)lru_entry->hash, b, sizeof(void));
+  de_serialize_data((char*)lru_entry->contains_data, b, sizeof(int));
+  de_serialize_data((char*)lru_entry->dirty, b, sizeof(int));
+  return lru_entry;
+}
 static struct slab*
 de_serialize_slabs(ser_buff_t *b){
   unsigned intsentinel = 0;
@@ -117,12 +143,98 @@ de_serialize_slabs(ser_buff_t *b){
 
 static struct slab_callback*
 de_serialize_callback(ser_buff_t *b){
+  unsigned intsentinel = 0;
+  SENTINEL_DETECTION_CODE(b);
+  struct slab_callback *callback = calloc(1, sizeof(struct slab_callback));
+  de_serialize_data((char*)&sentinel, b, sizeof(unsigned int));
+  if(sentinel == 0xFFFFFFFF){
+    slabs->ctx = NULL;
+  }
+  else{
+    serialize_buffer_skip(b, -1 * sizeof(unsigned int));
+    struct slab_cb_t *(callback->cb) = calloc(1, sizeof(slab_cb_t));
+    de_serialize_data((char*)callback->cb, b, sizeof(slab_cb_t));
+  }
+  de_serialize_data((char*)callback->payload, b, sizeof(void));
+  de_serialize_data((char*)callback->item, b, sizeof(void));
+  de_serialize_data((char*)callback->action, b, sizeof(void));
+  de_serialize_data((char*)&sentinel, b, sizeof(unsigned int));
+  if(sentinel == 0xFFFFFFFF){
+    slabs->slab = NULL;
+  }
+  else{
+    serialize_buffer_skip(b, -1 * sizeof(unsigned int));
+    callback->slab = calloc(1, sizeof(slab));
+    callback->slab = de_serialize_slabs(b);
+  }
+  de_serialize_data((char*)callback->slab_idx, b, sizeof(uint64_t));
+  de_serialize_data((char*)callback->tmp_page_number, b, sizeof(uint64_t));
+  de_serialize_data((char*)&sentinel, b, sizeof(unsigned int));
+  if(sentinel == 0xFFFFFFFF){
+    slabs->lru_entry = NULL;
+  }
+  else{
+    serialize_buffer_skip(b, -1 * sizeof(unsigned int));
+    slabs->lru_entry = calloc(1, sizeof(struct lru));
+    lru_entry = de_serialize_lru(b);
+  }
+  de_serialize_data((char*)&sentinel, b, sizeof(unsigned int));
+  if(sentinel == 0xFFFFFFFF){
+    slabs->io_cb = NULL;
+  }
+  else{
+    serialize_buffer_skip(b, -1 * sizeof(unsigned int));
+    callback->io_cb = calloc(1, sizeof(io_cb_t));
+    de_serialize_data((char*)callback->cb, b, sizeof(slab_cb_t));
+  }
+  return callback;
+}
+
+static struct hash_t*
+de_serialize_hash(ser_buff_t *b){
 
 }
 
 static struct pagecache*
 de_serialize_page_cache(ser_buff_t *b){
-
+  unsigned int sentinel = 0;
+  SENTINEL_DETECTION_CODE(b);
+  struct pagecache *page_cache = calloc(1, sizeof(pagecache));
+  de_serialize_data((char*)page_cache->cached_data, b, PAGE_CACHE_SIZE/get_nb_workers());
+  de_serialize_data((char*)sentinel, b, sizeof(unsigned int));
+  if(sentinel == 0xFFFFFFFF){
+    page_cache->hash_to_page = NULL;
+  }
+  else{
+    serialize_buffer_skip(b, -1*sizeof(unsigned int));
+    page_cache->hash_to_page = de_serialize_hash(b);
+  }
+  de_serialize_data((char*)sentinel, b, sizeof(unsigned int));
+  if(sentinel == 0xFFFFFFFF){
+    page_cache->used_pages = NULL;
+  }
+  else{
+    serialize_buffer_skip(b, -1*sizeof(unsigned int));
+    page_cache->used_pages = de_serialize_hash(b);
+  }
+  de_serialize_data((char*)sentinel, b, sizeof(unsigned int));
+  if(sentinel == 0xFFFFFFFF){
+    page_cache->oldest_pages = NULL;
+  }
+  else{
+    serialize_buffer_skip(b, -1*sizeof(unsigned int));
+    page_cache->oldest_pages = de_serialize_hash(b);
+  }
+  de_serialize_data((char*)sentinel, b, sizeof(unsigned int));
+  if(sentinel == 0xFFFFFFFF){
+    page_cache->newest_pages = NULL;
+  }
+  else{
+    serialize_buffer_skip(b, -1*sizeof(unsigned int));
+    page_cache->newest_pages = de_serialize_hash(b);
+  }
+  de_serialize_data((char*)page_cache->used_page_size, b, sizeof(size_t));
+  return page_cache;
 }
 
 static struct io_context*
@@ -282,7 +394,6 @@ void kv_add_or_update_async(struct slab_callback *callback) {
    struct slab_context *ctx = get_slab_context(callback->item);
    return enqueue_slab_callback(ctx, ADD_OR_UPDATE, callback);
 }
-
 
 void kv_remove_async(struct slab_callback *callback) {
    struct slab_context *ctx = get_slab_context(callback->item);
