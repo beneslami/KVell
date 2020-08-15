@@ -138,5 +138,3 @@ void btree_init(void) {
       pthread_spin_init(&items_location_locks[w], PTHREAD_PROCESS_PRIVATE);
    }
 }
-
-

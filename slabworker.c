@@ -85,6 +85,7 @@ de_serialize_lru(ser_buff_t *b){
   de_serialize_data((char*)lru_entry->dirty, b, sizeof(int));
   return lru_entry;
 }
+
 static struct slab*
 de_serialize_slabs(ser_buff_t *b){
   unsigned intsentinel = 0;
